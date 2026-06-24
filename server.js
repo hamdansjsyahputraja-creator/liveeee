@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
-const { WebcastPushConnection } = require('tiktok-live-connector');
+const { TikTokLiveConnection, WebcastEvent, ControlEvent } = require('tiktok-live-connector');
 
 const app = express();
 const server = http.createServer(app);
@@ -18,6 +18,7 @@ const state = {
   tiktokUsername: process.env.TIKTOK_USERNAME || '',
   connected: false,
   lastEvent: null,
+  labelText: process.env.LABEL_TEXT || 'MARATHON TIME',
 };
 
 let clients = [];
@@ -65,7 +66,7 @@ function connectTikTok(username) {
     return;
   }
 
-  tiktokConnection = new WebcastPushConnection(username);
+  tiktokConnection = new TikTokLiveConnection(username);
 
   tiktokConnection
     .connect()
@@ -81,33 +82,38 @@ function connectTikTok(username) {
       broadcastState();
     });
 
-  tiktokConnection.on('disconnected', () => {
+  tiktokConnection.on(ControlEvent.DISCONNECTED, () => {
     state.connected = false;
     broadcastState();
   });
 
-  tiktokConnection.on('gift', (data) => {
-    if (data.giftType === 1 && !data.repeatEnd) return; // tunggu streak selesai
+  tiktokConnection.on(WebcastEvent.GIFT, (data) => {
+    const giftType = data.giftDetails?.giftType;
+    const giftName = data.giftDetails?.giftName || 'Gift';
+    const uniqueId = data.user?.uniqueId || 'someone';
 
-    const totalCoins = data.diamondCount * data.repeatCount;
+    if (giftType === 1 && !data.repeatEnd) return; // tunggu streak selesai
+
+    const totalCoins = (data.diamondCount || 0) * (data.repeatCount || 1);
     const addedSeconds = totalCoins * state.secondsPerCoin;
 
     state.remainingSeconds += addedSeconds;
-    state.lastEvent = `${data.uniqueId} +${addedSeconds}s (${data.giftName} x${data.repeatCount})`;
+    state.lastEvent = `${uniqueId} +${addedSeconds}s (${giftName} x${data.repeatCount})`;
 
     broadcastGift({
       seconds: addedSeconds,
       coins: totalCoins,
-      user: data.uniqueId,
-      giftName: data.giftName,
+      user: uniqueId,
+      giftName,
     });
     broadcastState();
   });
 
-  tiktokConnection.on('follow', (data) => {
+  tiktokConnection.on(WebcastEvent.FOLLOW, (data) => {
+    const uniqueId = data.user?.uniqueId || 'someone';
     state.remainingSeconds += 5;
-    state.lastEvent = `${data.uniqueId} follow +5s`;
-    broadcastGift({ seconds: 5, coins: 0, user: data.uniqueId, giftName: 'Follow' });
+    state.lastEvent = `${uniqueId} follow +5s`;
+    broadcastGift({ seconds: 5, coins: 0, user: uniqueId, giftName: 'Follow' });
     broadcastState();
   });
 }
@@ -122,8 +128,9 @@ app.post('/api/tiktok/connect', (req, res) => {
 });
 
 app.post('/api/settings', (req, res) => {
-  const { secondsPerCoin } = req.body;
+  const { secondsPerCoin, labelText } = req.body;
   if (secondsPerCoin !== undefined) state.secondsPerCoin = parseInt(secondsPerCoin, 10);
+  if (labelText !== undefined) state.labelText = labelText;
   broadcastState();
   res.json({ ok: true, state });
 });
