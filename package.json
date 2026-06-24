@@ -1,0 +1,14 @@
+{
+  "name": "marathon-overlay",
+  "version": "1.0.0",
+  "description": "Overlay marathon timer TikTok Live - 1 coin = +5 detik",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "tiktok-live-connector": "^1.2.10",
+    "ws": "^8.18.0"
+  }
+}
