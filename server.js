@@ -66,7 +66,11 @@ function connectTikTok(username) {
     return;
   }
 
-  tiktokConnection = new TikTokLiveConnection(username);
+  tiktokConnection = new TikTokLiveConnection(username, {
+    processInitialData: true,
+    fetchRoomInfoOnConnect: true,
+    enableExtendedGiftInfo: true,
+  });
 
   tiktokConnection
     .connect()
