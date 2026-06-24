@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<title>Marathon Timer Overlay</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: transparent;
+    font-family: 'Arial Black', Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  #timer {
+    font-size: 120px;
+    font-weight: 900;
+    color: #ffffff;
+    text-shadow:
+      -3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000, 3px 3px 0 #000,
+      0 0 25px rgba(255, 215, 0, 0.8);
+    letter-spacing: 4px;
+    transition: transform 0.15s ease;
+  }
+
+  #timer.pulse { transform: scale(1.15); color: #ffd700; }
+  #timer.paused { color: #aaaaaa; }
+  #timer.ended { color: #ff3b3b; }
+
+  #label {
+    margin-top: 8px;
+    font-size: 22px;
+    color: #fff;
+    text-shadow: 2px 2px 0 #000;
+    letter-spacing: 2px;
+  }
+
+  #toast {
+    position: absolute;
+    bottom: 60px;
+    font-size: 28px;
+    color: #00ff88;
+    text-shadow: 2px 2px 0 #000;
+    opacity: 0;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    transform: translateY(20px);
+    font-weight: bold;
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+  <div id="timer">00:00</div>
+  <div id="label">MARATHON TIME</div>
+  <div id="toast"></div>
+
+  <script>
+    const wsUrl = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host;
+    const timerEl = document.getElementById('timer');
+    const labelEl = document.getElementById('label');
+    const toastEl = document.getElementById('toast');
+
+    function formatTime(totalSeconds) {
+      const s = Math.max(0, totalSeconds);
+      const mm = String(Math.floor(s / 60)).padStart(2, '0');
+      const ss = String(s % 60).padStart(2, '0');
+      return `${mm}:${ss}`;
+    }
+
+    function render(state) {
+      timerEl.textContent = formatTime(state.remainingSeconds);
+      timerEl.classList.toggle('ended', state.remainingSeconds <= 0);
+      timerEl.classList.toggle('paused', state.paused);
+      labelEl.textContent = state.labelText || '';
+    }
+
+    function pulse() {
+      timerEl.classList.add('pulse');
+      setTimeout(() => timerEl.classList.remove('pulse'), 200);
+    }
+
+    function showToast(text) {
+      toastEl.textContent = text;
+      toastEl.classList.add('show');
+      setTimeout(() => toastEl.classList.remove('show'), 1800);
+    }
+
+    function connectWS() {
+      const ws = new WebSocket(wsUrl);
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'state') {
+          render(data.state);
+        } else if (data.type === 'gift') {
+          pulse();
+          if (data.coins > 0) {
+            showToast(`${data.user} +${data.seconds}s (${data.giftName} x${data.coins} coin)`);
+          } else {
+            showToast(`${data.user} +${data.seconds}s (${data.giftName})`);
+          }
+        }
+      };
+
+      ws.onclose = () => setTimeout(connectWS, 3000);
+      ws.onerror = () => ws.close();
+    }
+    connectWS();
+  </script>
+</body>
+</html>
