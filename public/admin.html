@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<title>Settings - Marathon Overlay</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, Arial, sans-serif;
+    background: #111827;
+    color: #f3f4f6;
+    padding: 20px;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: #9ca3af; font-size: 13px; margin-bottom: 20px; }
+
+  .card {
+    background: #1f2937;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .card h2 { font-size: 14px; color: #9ca3af; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  .status-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 14px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #ef4444; }
+  .dot.on { background: #22c55e; }
+
+  #bigTimer { font-size: 42px; font-weight: 900; text-align: center; margin: 8px 0; }
+
+  input {
+    width: 100%;
+    background: #111827;
+    border: 1px solid #374151;
+    color: #fff;
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 15px;
+    margin-bottom: 8px;
+  }
+
+  button {
+    background: #6366f1;
+    color: #fff;
+    border: none;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    margin: 3px;
+  }
+  button:active { transform: scale(0.97); }
+  button.secondary { background: #374151; }
+  button.danger { background: #ef4444; }
+  button.success { background: #22c55e; }
+
+  .row { display: flex; flex-wrap: wrap; gap: 4px; }
+  .row button { flex: 1; min-width: 70px; }
+
+  .overlay-url {
+    font-size: 12px;
+    background: #111827;
+    padding: 8px;
+    border-radius: 6px;
+    word-break: break-all;
+    color: #9ca3af;
+    margin-bottom: 8px;
+  }
+
+  #log { font-size: 12px; color: #9ca3af; min-height: 18px; }
+</style>
+</head>
+<body>
+  <h1>⚙️ Settings Marathon Overlay</h1>
+  <div class="sub">Atur dari sini, overlay di OBS update otomatis</div>
+
+  <div class="card">
+    <h2>Status</h2>
+    <div class="status-row"><span class="dot" id="dotConn"></span> <span id="connText">Belum connect TikTok</span></div>
+    <div id="bigTimer">00:00</div>
+    <div class="row">
+      <button class="success" onclick="resume()">▶ Resume</button>
+      <button class="secondary" onclick="pause()">⏸ Pause</button>
+    </div>
+    <div id="log"></div>
+  </div>
+
+  <div class="card">
+    <h2>Koneksi TikTok</h2>
+    <input id="username" placeholder="username tiktok (tanpa @)" />
+    <button onclick="connectTikTok()">Connect</button>
+  </div>
+
+  <div class="card">
+    <h2>Atur Timer</h2>
+    <input id="minutesInput" type="number" placeholder="Set durasi (menit)" />
+    <button onclick="setTimerMinutes()">Set Timer</button>
+    <div class="row" style="margin-top:8px">
+      <button class="secondary" onclick="addTime(-30)">-30s</button>
+      <button class="secondary" onclick="addTime(30)">+30s</button>
+      <button class="secondary" onclick="addTime(60)">+60s</button>
+      <button class="secondary" onclick="addTime(300)">+5m</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Text di Bawah Timer</h2>
+    <input id="labelInput" placeholder="contoh: MARATHON TIME" />
+    <button onclick="saveLabel()">Simpan Text</button>
+  </div>
+
+  <div class="card">
+    <h2>Coin → Detik</h2>
+    <input id="secPerCoin" type="number" placeholder="1 coin = berapa detik" />
+    <button onclick="saveSettings()">Simpan</button>
+  </div>
+
+  <div class="card">
+    <h2>URL Overlay (pasang di OBS Browser Source)</h2>
+    <div class="overlay-url" id="overlayUrl"></div>
+    <button onclick="copyOverlayUrl()">Copy URL</button>
+  </div>
+
+  <script>
+    const base = window.location.origin;
+    document.getElementById('overlayUrl').textContent = base + '/index.html';
+
+    function copyOverlayUrl() {
+      navigator.clipboard.writeText(base + '/index.html');
+      alert('URL overlay sudah di-copy!');
+    }
+
+    async function post(path, body) {
+      const res = await fetch(base + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      });
+      return res.json();
+    }
+
+    function connectTikTok() {
+      const username = document.getElementById('username').value.trim();
+      post('/api/tiktok/connect', { username });
+    }
+
+    function setTimerMinutes() {
+      const minutes = parseFloat(document.getElementById('minutesInput').value || '0');
+      post('/api/timer/set', { seconds: Math.round(minutes * 60) });
+    }
+
+    function addTime(seconds) {
+      post('/api/timer/add', { seconds });
+    }
+
+    function pause() { post('/api/timer/pause'); }
+    function resume() { post('/api/timer/resume'); }
+
+    function saveSettings() {
+      const secondsPerCoin = parseInt(document.getElementById('secPerCoin').value || '5', 10);
+      post('/api/settings', { secondsPerCoin });
+    }
+
+    function saveLabel() {
+      const labelText = document.getElementById('labelInput').value;
+      post('/api/settings', { labelText });
+    }
+
+    function formatTime(totalSeconds) {
+      const s = Math.max(0, totalSeconds);
+      const mm = String(Math.floor(s / 60)).padStart(2, '0');
+      const ss = String(s % 60).padStart(2, '0');
+      return `${mm}:${ss}`;
+    }
+
+    function renderState(state) {
+      document.getElementById('bigTimer').textContent = formatTime(state.remainingSeconds);
+      document.getElementById('dotConn').classList.toggle('on', state.connected);
+      document.getElementById('connText').textContent = state.connected
+        ? `Live: @${state.tiktokUsername}`
+        : 'Belum connect TikTok';
+      document.getElementById('secPerCoin').value = state.secondsPerCoin;
+      document.getElementById('labelInput').value = state.labelText || '';
+      if (state.lastEvent) document.getElementById('log').textContent = 'Terakhir: ' + state.lastEvent;
+    }
+
+    function connectWS() {
+      const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+      const ws = new WebSocket(wsUrl);
+      ws.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        if (data.type === 'state') renderState(data.state);
+      };
+      ws.onclose = () => setTimeout(connectWS, 3000);
+    }
+    connectWS();
+
+    fetch(base + '/api/state').then(r => r.json()).then(renderState);
+  </script>
+</body>
+</html>
