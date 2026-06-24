@@ -14,18 +14,23 @@
     align-items: center;
     justify-content: center;
     height: 100vh;
+    width: 100vw;
     overflow: hidden;
+    padding: 2vw;
   }
 
   #timer {
-    font-size: 120px;
+    font-size: clamp(30px, 14vw, 200px);
     font-weight: 900;
     color: #ffffff;
     text-shadow:
       -3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000, 3px 3px 0 #000,
       0 0 25px rgba(255, 215, 0, 0.8);
-    letter-spacing: 4px;
+    letter-spacing: 0.04em;
     transition: transform 0.15s ease;
+    line-height: 1;
+    white-space: nowrap;
+    text-align: center;
   }
 
   #timer.pulse { transform: scale(1.15); color: #ffd700; }
@@ -33,23 +38,29 @@
   #timer.ended { color: #ff3b3b; }
 
   #label {
-    margin-top: 8px;
-    font-size: 22px;
+    margin-top: 1vh;
+    font-size: clamp(14px, 3.5vw, 36px);
     color: #fff;
     text-shadow: 2px 2px 0 #000;
-    letter-spacing: 2px;
+    letter-spacing: 0.1em;
+    text-align: center;
+    max-width: 95vw;
+    word-break: break-word;
   }
 
   #toast {
     position: absolute;
-    bottom: 60px;
-    font-size: 28px;
+    bottom: 6vh;
+    font-size: clamp(14px, 2.8vw, 30px);
     color: #00ff88;
     text-shadow: 2px 2px 0 #000;
     opacity: 0;
     transition: opacity 0.3s ease, transform 0.3s ease;
     transform: translateY(20px);
     font-weight: bold;
+    text-align: center;
+    max-width: 90vw;
+    padding: 0 2vw;
   }
   #toast.show { opacity: 1; transform: translateY(0); }
 </style>
