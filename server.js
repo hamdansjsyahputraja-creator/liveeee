@@ -1,171 +1,233 @@
-const express = require('express');
-const http = require('http');
-const WebSocket = require('ws');
-const { TikTokLiveConnection, WebcastEvent, ControlEvent } = require('tiktok-live-connector');
+require("dotenv").config();
+
+const express = require("express");
+const http = require("http");
+const path = require("path");
+const { WebSocketServer } = require("ws");
+const { TikTokLiveConnection, WebcastEvent } = require("tiktok-live-connector");
+
+const PORT = process.env.PORT || 3000;
+const ADDON_SECRET = process.env.ADDON_SECRET || "ganti-secret-ini";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "ganti-password-ini";
 
 const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
-
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, "public")));
 
-// === STATE (single source of truth, disimpan di memory) ===
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server, path: "/ws" });
+
+// =======================================================
+// STATE
+// =======================================================
 const state = {
-  remainingSeconds: parseInt(process.env.DEFAULT_DURATION || '60', 10),
-  secondsPerCoin: parseInt(process.env.SECONDS_PER_COIN || '5', 10),
-  paused: true,
-  tiktokUsername: process.env.TIKTOK_USERNAME || '',
+  connection: null,
   connected: false,
-  lastEvent: null,
-  labelText: process.env.LABEL_TEXT || 'MARATHON TIME',
+  username: null,
+  viewerCount: 0,
+  tntQueue: 0,
+  totalTntSpawned: 0,
+  log: [], // log event terbaru, max 50
 };
 
-let clients = [];
-let tiktokConnection = null;
+function pushLog(type, message) {
+  const entry = { type, message, time: new Date().toISOString() };
+  state.log.unshift(entry);
+  if (state.log.length > 50) state.log.pop();
+  broadcast({ event: "log", data: entry });
+}
 
-wss.on('connection', (ws) => {
-  clients.push(ws);
-  ws.send(JSON.stringify({ type: 'state', state }));
-  ws.on('close', () => {
-    clients = clients.filter((c) => c !== ws);
+function broadcast(payload) {
+  const text = JSON.stringify(payload);
+  wss.clients.forEach((client) => {
+    if (client.readyState === 1) client.send(text);
+  });
+}
+
+function broadcastStatus() {
+  broadcast({
+    event: "status",
+    data: {
+      connected: state.connected,
+      username: state.username,
+      viewerCount: state.viewerCount,
+      tntQueue: state.tntQueue,
+      totalTntSpawned: state.totalTntSpawned,
+    },
+  });
+}
+
+// =======================================================
+// MIDDLEWARE AUTH
+// =======================================================
+function requireAddonSecret(req, res, next) {
+  const secret = req.header("X-Addon-Secret");
+  if (secret !== ADDON_SECRET) {
+    return res.status(401).json({ error: "Secret addon salah" });
+  }
+  next();
+}
+
+function requireAdminPassword(req, res, next) {
+  const pass = req.header("X-Admin-Password");
+  if (pass !== ADMIN_PASSWORD) {
+    return res.status(401).json({ error: "Password admin salah" });
+  }
+  next();
+}
+
+// =======================================================
+// TIKTOK LIVE
+// =======================================================
+async function connectTikTok(username, sessionId) {
+  if (state.connection) {
+    try {
+      await state.connection.disconnect();
+    } catch (_) {}
+    state.connection = null;
+  }
+
+  const options = {};
+  if (sessionId && sessionId.trim().length > 0) {
+    options.session = { cookie: sessionId.trim() };
+  }
+
+  const connection = new TikTokLiveConnection(username, options);
+  state.connection = connection;
+  state.username = username;
+
+  connection.on(WebcastEvent.CONNECT, () => {
+    state.connected = true;
+    pushLog("connect", `Berhasil connect ke live @${username}`);
+    broadcastStatus();
+  });
+
+  connection.on(WebcastEvent.DISCONNECT, () => {
+    state.connected = false;
+    pushLog("disconnect", `Terputus dari live @${username}`);
+    broadcastStatus();
+  });
+
+  connection.on(WebcastEvent.ROOM_USER, (data) => {
+    if (typeof data.viewerCount === "number") {
+      state.viewerCount = data.viewerCount;
+      broadcastStatus();
+    }
+  });
+
+  connection.on(WebcastEvent.GIFT, (data) => {
+    // Gift streak (giftType 1) terus menembak event sampai repeatEnd true.
+    // Kita hanya proses sekali di akhir streak biar tidak dobel hitung.
+    const isStreakInProgress = data.giftType === 1 && !data.repeatEnd;
+    if (isStreakInProgress) return;
+
+    const coins = (data.diamondCount || 0) * (data.repeatCount || 1);
+    if (coins <= 0) return;
+
+    state.tntQueue += coins;
+    state.totalTntSpawned += coins;
+
+    pushLog(
+      "gift",
+      `${data.nickname || data.uniqueId} kirim ${data.giftName || "gift"} x${data.repeatCount} (${coins} coin -> ${coins} TNT)`
+    );
+    broadcastStatus();
+  });
+
+  await connection.connect();
+}
+
+async function disconnectTikTok() {
+  if (state.connection) {
+    try {
+      await state.connection.disconnect();
+    } catch (_) {}
+    state.connection = null;
+  }
+  state.connected = false;
+  state.username = null;
+  state.viewerCount = 0;
+  broadcastStatus();
+}
+
+// =======================================================
+// API: DIPAKAI ADDON MINECRAFT
+// =======================================================
+
+// Addon polling endpoint ini. Hanya melepas sejumlah "max" TNT,
+// sisanya tetap tersimpan di queue untuk polling berikutnya.
+app.get("/api/tnt-queue", requireAddonSecret, (req, res) => {
+  const max = Math.max(0, parseInt(req.query.max, 10) || 40);
+  const release = Math.min(state.tntQueue, max);
+  state.tntQueue -= release;
+  if (release > 0) broadcastStatus();
+  res.json({ count: release, remaining: state.tntQueue });
+});
+
+// =======================================================
+// API: DIPAKAI WEB ADMIN
+// =======================================================
+
+app.get("/api/status", (req, res) => {
+  res.json({
+    connected: state.connected,
+    username: state.username,
+    viewerCount: state.viewerCount,
+    tntQueue: state.tntQueue,
+    totalTntSpawned: state.totalTntSpawned,
+    log: state.log,
   });
 });
 
-function broadcastState() {
-  const msg = JSON.stringify({ type: 'state', state });
-  clients.forEach((ws) => {
-    if (ws.readyState === WebSocket.OPEN) ws.send(msg);
-  });
-}
-
-function broadcastGift(payload) {
-  const msg = JSON.stringify({ type: 'gift', ...payload });
-  clients.forEach((ws) => {
-    if (ws.readyState === WebSocket.OPEN) ws.send(msg);
-  });
-}
-
-// Countdown tick tiap 1 detik, server yang pegang kontrol penuh
-setInterval(() => {
-  if (!state.paused && state.remainingSeconds > 0) {
-    state.remainingSeconds--;
-    broadcastState();
+app.post("/api/connect", requireAdminPassword, async (req, res) => {
+  const { username, sessionId } = req.body || {};
+  if (!username || username.trim().length === 0) {
+    return res.status(400).json({ error: "Username TikTok wajib diisi" });
   }
-}, 1000);
-
-// === TIKTOK CONNECTION ===
-function connectTikTok(username) {
-  if (tiktokConnection) {
-    try { tiktokConnection.disconnect(); } catch (e) {}
-    tiktokConnection = null;
+  try {
+    await connectTikTok(username.trim().replace(/^@/, ""), sessionId);
+    res.json({ ok: true });
+  } catch (err) {
+    pushLog("error", `Gagal connect: ${err.message || err}`);
+    res.status(500).json({ error: String(err.message || err) });
   }
-  if (!username) {
-    state.connected = false;
-    broadcastState();
-    return;
-  }
+});
 
-  tiktokConnection = new TikTokLiveConnection(username, {
-    processInitialData: true,
-    fetchRoomInfoOnConnect: true,
-    enableExtendedGiftInfo: true,
-  });
-
-  tiktokConnection
-    .connect()
-    .then((info) => {
-      state.connected = true;
-      state.tiktokUsername = username;
-      console.log(`Connected ke room TikTok: ${info.roomId}`);
-      broadcastState();
-    })
-    .catch((err) => {
-      state.connected = false;
-      console.error('Gagal connect ke TikTok Live:', err.message || err);
-      broadcastState();
-    });
-
-  tiktokConnection.on(ControlEvent.DISCONNECTED, () => {
-    state.connected = false;
-    broadcastState();
-  });
-
-  tiktokConnection.on(WebcastEvent.GIFT, (data) => {
-    const giftType = data.giftDetails?.giftType;
-    const giftName = data.giftDetails?.giftName || 'Gift';
-    const uniqueId = data.user?.uniqueId || 'someone';
-
-    if (giftType === 1 && !data.repeatEnd) return; // tunggu streak selesai
-
-    const totalCoins = (data.diamondCount || 0) * (data.repeatCount || 1);
-    const addedSeconds = totalCoins * state.secondsPerCoin;
-
-    state.remainingSeconds += addedSeconds;
-    state.lastEvent = `${uniqueId} +${addedSeconds}s (${giftName} x${data.repeatCount})`;
-
-    broadcastGift({
-      seconds: addedSeconds,
-      coins: totalCoins,
-      user: uniqueId,
-      giftName,
-    });
-    broadcastState();
-  });
-
-  tiktokConnection.on(WebcastEvent.FOLLOW, (data) => {
-    const uniqueId = data.user?.uniqueId || 'someone';
-    state.remainingSeconds += 5;
-    state.lastEvent = `${uniqueId} follow +5s`;
-    broadcastGift({ seconds: 5, coins: 0, user: uniqueId, giftName: 'Follow' });
-    broadcastState();
-  });
-}
-
-if (state.tiktokUsername) connectTikTok(state.tiktokUsername);
-
-// === REST API untuk admin panel ===
-app.post('/api/tiktok/connect', (req, res) => {
-  const { username } = req.body;
-  connectTikTok(username);
+app.post("/api/disconnect", requireAdminPassword, async (req, res) => {
+  await disconnectTikTok();
   res.json({ ok: true });
 });
 
-app.post('/api/settings', (req, res) => {
-  const { secondsPerCoin, labelText } = req.body;
-  if (secondsPerCoin !== undefined) state.secondsPerCoin = parseInt(secondsPerCoin, 10);
-  if (labelText !== undefined) state.labelText = labelText;
-  broadcastState();
-  res.json({ ok: true, state });
+app.post("/api/test-spawn", requireAdminPassword, (req, res) => {
+  const count = Math.max(1, Math.min(500, parseInt(req.body?.count, 10) || 1));
+  state.tntQueue += count;
+  pushLog("test", `Test spawn manual: +${count} TNT`);
+  broadcastStatus();
+  res.json({ ok: true, tntQueue: state.tntQueue });
 });
 
-app.post('/api/timer/set', (req, res) => {
-  const { seconds } = req.body;
-  state.remainingSeconds = parseInt(seconds, 10) || 0;
-  broadcastState();
-  res.json({ ok: true, state });
+app.post("/api/reset-queue", requireAdminPassword, (req, res) => {
+  state.tntQueue = 0;
+  pushLog("test", "Queue TNT di-reset ke 0");
+  broadcastStatus();
+  res.json({ ok: true });
 });
 
-app.post('/api/timer/add', (req, res) => {
-  const { seconds } = req.body;
-  state.remainingSeconds = Math.max(0, state.remainingSeconds + (parseInt(seconds, 10) || 0));
-  broadcastState();
-  res.json({ ok: true, state });
+wss.on("connection", (ws) => {
+  ws.send(
+    JSON.stringify({
+      event: "status",
+      data: {
+        connected: state.connected,
+        username: state.username,
+        viewerCount: state.viewerCount,
+        tntQueue: state.tntQueue,
+        totalTntSpawned: state.totalTntSpawned,
+      },
+    })
+  );
 });
 
-app.post('/api/timer/pause', (req, res) => {
-  state.paused = true;
-  broadcastState();
-  res.json({ ok: true, state });
+server.listen(PORT, () => {
+  console.log(`Gift TNT backend jalan di port ${PORT}`);
 });
-
-app.post('/api/timer/resume', (req, res) => {
-  state.paused = false;
-  broadcastState();
-  res.json({ ok: true, state });
-});
-
-app.get('/api/state', (req, res) => res.json(state));
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server jalan di port ${PORT}`));
