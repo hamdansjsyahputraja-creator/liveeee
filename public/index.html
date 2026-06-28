@@ -153,16 +153,32 @@
   <div class="wrap">
     <div class="grid">
       <div class="panel">
-        <h2>Data Live TikTok</h2>
+        <h2>1. Sambungkan Minecraft</h2>
+        <p class="hint" style="margin-top:0">
+          Buka world kamu di Minecraft (HARUS dibuka dulu, baru ketik ini di chat):
+        </p>
+        <input readonly id="connectCmd" value="/connect loading.../" onclick="this.select()" style="font-weight:bold; color:var(--fuse);" />
+        <div class="hint">
+          Tap kotak di atas buat select all, lalu ketik manual di chat Minecraft
+          (command nggak bisa di-paste langsung di sebagian device).
+          Sebelum itu, di Settings → General → Profile, aktifkan
+          <b>"Require Encrypted Websockets"</b>.
+        </div>
+        <div class="row">
+          <span id="mcStatus" class="status-pill off">Minecraft: belum connect</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>2. Data Live TikTok</h2>
         <label for="username">Username TikTok (tanpa @)</label>
         <input id="username" placeholder="contoh: namastreamer" />
 
-        <label for="sessionId">Session ID (opsional, dari cookie browser)</label>
+        <label for="sessionId">Session ID (opsional)</label>
         <input id="sessionId" placeholder="isi kalau koneksi dari Railway gagal" />
         <div class="hint">
-          Kalau connect gagal karena IP server (Railway) dianggap mencurigakan oleh TikTok,
-          isi session ID. Cara ambil: login TikTok lewat browser Chrome di HP →
-          buka DevTools/Inspect → Application/Storage → Cookies → cari nama <b>sessionid</b> → copy valuenya ke sini.
+          Kalau connect gagal karena IP server dianggap mencurigakan TikTok, isi session ID
+          dari cookie <b>sessionid</b> akun TikTok kamu (login lewat browser HP → cek cookie).
         </div>
 
         <div class="row">
@@ -171,21 +187,21 @@
         </div>
         <div id="connectMsg" class="msg"></div>
       </div>
+    </div>
 
-      <div class="panel">
-        <h2>Test Spawn TNT</h2>
-        <p class="hint" style="margin-top:0">
-          Tambah TNT ke antrian secara manual tanpa harus ada gift asli.
-          Berguna untuk tes koneksi addon Minecraft.
-        </p>
-        <label for="testCount">Jumlah TNT</label>
-        <input id="testCount" type="number" min="1" max="500" value="5" />
-        <div class="row">
-          <button class="btn-fuse" onclick="doTestSpawn()">🧨 Test Spawn</button>
-          <button class="btn-ghost" onclick="doResetQueue()">Reset Antrian</button>
-        </div>
-        <div id="testMsg" class="msg"></div>
+    <div class="panel" style="margin-top:18px;">
+      <h2>Test Spawn TNT</h2>
+      <p class="hint" style="margin-top:0">
+        Tambah TNT ke antrian secara manual tanpa harus ada gift asli.
+        Pastikan status Minecraft di atas sudah "connect" dulu.
+      </p>
+      <label for="testCount">Jumlah TNT</label>
+      <input id="testCount" type="number" min="1" max="500" value="5" />
+      <div class="row">
+        <button class="btn-fuse" onclick="doTestSpawn()">🧨 Test Spawn</button>
+        <button class="btn-ghost" onclick="doResetQueue()">Reset Antrian</button>
       </div>
+      <div id="testMsg" class="msg"></div>
     </div>
 
     <div class="panel" style="margin-top:18px;">
@@ -291,6 +307,15 @@ function renderStatus(d){
     dot.classList.remove("live");
   }
 
+  const mcPill = document.getElementById("mcStatus");
+  if((d.mcConnections || 0) > 0){
+    mcPill.textContent = "Minecraft: connect (" + d.mcConnections + ")";
+    mcPill.className = "status-pill on";
+  }else{
+    mcPill.textContent = "Minecraft: belum connect";
+    mcPill.className = "status-pill off";
+  }
+
   const pct = Math.min(100, (d.tntQueue || 0) * 2);
   document.getElementById("fuseFill").style.width = pct + "%";
 }
@@ -310,13 +335,15 @@ function escapeHtml(s){
 }
 
 function initApp(){
+  document.getElementById("connectCmd").value = "/connect " + location.hostname + ":443";
+
   fetch("/api/status").then(r=>r.json()).then(d=>{
     renderStatus(d);
     (d.log || []).slice().reverse().forEach(addLogEntry);
   });
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(proto + "//" + location.host + "/ws");
+  const ws = new WebSocket(proto + "//" + location.host + "/admin-ws");
   ws.onmessage = (msg) => {
     const payload = JSON.parse(msg.data);
     if(payload.event === "status") renderStatus(payload.data);
