@@ -3,11 +3,11 @@ require("dotenv").config();
 const express = require("express");
 const http = require("http");
 const path = require("path");
+const crypto = require("crypto");
 const { WebSocketServer } = require("ws");
 const { TikTokLiveConnection, WebcastEvent } = require("tiktok-live-connector");
 
 const PORT = process.env.PORT || 3000;
-const ADDON_SECRET = process.env.ADDON_SECRET || "ganti-secret-ini";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "ganti-password-ini";
 
 const app = express();
@@ -15,37 +15,55 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: "/ws" });
+
+// =======================================================
+// DUA JALUR WEBSOCKET DI SATU SERVER HTTP YANG SAMA:
+//   "/"          -> koneksi DARI Minecraft (lewat command /connect)
+//   "/admin-ws"  -> koneksi dari web admin panel (live update di browser)
+// =======================================================
+const wssAdmin = new WebSocketServer({ noServer: true });
+const wssGame = new WebSocketServer({ noServer: true });
+
+server.on("upgrade", (req, socket, head) => {
+  if (req.url && req.url.startsWith("/admin-ws")) {
+    wssAdmin.handleUpgrade(req, socket, head, (ws) => wssAdmin.emit("connection", ws, req));
+  } else {
+    wssGame.handleUpgrade(req, socket, head, (ws) => wssGame.emit("connection", ws, req));
+  }
+});
 
 // =======================================================
 // STATE
 // =======================================================
 const state = {
-  connection: null,
+  connection: null, // koneksi TikTok Live
   connected: false,
   username: null,
   viewerCount: 0,
   tntQueue: 0,
   totalTntSpawned: 0,
-  log: [], // log event terbaru, max 50
+  mcConnections: 0,
+  log: [],
 };
+
+const mcClients = new Set();
 
 function pushLog(type, message) {
   const entry = { type, message, time: new Date().toISOString() };
   state.log.unshift(entry);
   if (state.log.length > 50) state.log.pop();
-  broadcast({ event: "log", data: entry });
+  broadcastAdmin({ event: "log", data: entry });
 }
 
-function broadcast(payload) {
+function broadcastAdmin(payload) {
   const text = JSON.stringify(payload);
-  wss.clients.forEach((client) => {
+  wssAdmin.clients.forEach((client) => {
     if (client.readyState === 1) client.send(text);
   });
 }
 
 function broadcastStatus() {
-  broadcast({
+  broadcastAdmin({
     event: "status",
     data: {
       connected: state.connected,
@@ -53,19 +71,9 @@ function broadcastStatus() {
       viewerCount: state.viewerCount,
       tntQueue: state.tntQueue,
       totalTntSpawned: state.totalTntSpawned,
+      mcConnections: state.mcConnections,
     },
   });
-}
-
-// =======================================================
-// MIDDLEWARE AUTH
-// =======================================================
-function requireAddonSecret(req, res, next) {
-  const secret = req.header("X-Addon-Secret");
-  if (secret !== ADDON_SECRET) {
-    return res.status(401).json({ error: "Secret addon salah" });
-  }
-  next();
 }
 
 function requireAdminPassword(req, res, next) {
@@ -75,6 +83,76 @@ function requireAdminPassword(req, res, next) {
   }
   next();
 }
+
+// =======================================================
+// JEMBATAN KE MINECRAFT (lewat /connect command)
+// =======================================================
+function sendCommand(ws, commandLine) {
+  const message = {
+    header: {
+      version: 1,
+      requestId: crypto.randomUUID(),
+      messagePurpose: "commandRequest",
+    },
+    body: {
+      version: 1,
+      commandLine,
+      origin: { type: "player" },
+    },
+  };
+  try {
+    ws.send(JSON.stringify(message));
+  } catch (_) {
+    // koneksi mungkin sudah putus, abaikan
+  }
+}
+
+// @r = pilih 1 player ONLINE secara random (vanilla selector).
+// Jadi 1 panggilan = 1 TNT muncul di salah satu player yang online.
+function spawnOneTnt() {
+  if (mcClients.size === 0) return false;
+  const client = mcClients.values().next().value;
+  const offsetX = (Math.random() * 4 - 2).toFixed(1);
+  const offsetZ = (Math.random() * 4 - 2).toFixed(1);
+  sendCommand(client, `execute as @r at @s run summon tnt ~${offsetX} ~3 ~${offsetZ}`);
+  return true;
+}
+
+wssGame.on("connection", (ws) => {
+  mcClients.add(ws);
+  state.mcConnections = mcClients.size;
+  pushLog("connect", `Minecraft terhubung ke bridge (${mcClients.size} koneksi aktif)`);
+  broadcastStatus();
+
+  ws.on("close", () => {
+    mcClients.delete(ws);
+    state.mcConnections = mcClients.size;
+    pushLog("disconnect", "Minecraft putus dari bridge");
+    broadcastStatus();
+  });
+
+  ws.on("message", () => {
+    // Kita cuma kirim command, balasan dari game diabaikan.
+  });
+  ws.on("error", () => {});
+});
+
+// Drip-feed antrian TNT pelan-pelan (bukan sekaligus), biar nggak banjir
+// command kalau ada gift besar yang masuk dalam satu waktu.
+setInterval(() => {
+  if (state.tntQueue <= 0) return;
+  const batch = Math.min(state.tntQueue, 5);
+  let spawned = 0;
+  for (let i = 0; i < batch; i++) {
+    if (!spawnOneTnt()) break; // tidak ada Minecraft yang connect, stop
+    spawned++;
+  }
+  if (spawned > 0) {
+    state.tntQueue -= spawned;
+    state.totalTntSpawned += spawned;
+    broadcastStatus();
+  }
+}, 300);
 
 // =======================================================
 // TIKTOK LIVE
@@ -116,8 +194,6 @@ async function connectTikTok(username, sessionId) {
   });
 
   connection.on(WebcastEvent.GIFT, (data) => {
-    // Gift streak (giftType 1) terus menembak event sampai repeatEnd true.
-    // Kita hanya proses sekali di akhir streak biar tidak dobel hitung.
     const isStreakInProgress = data.giftType === 1 && !data.repeatEnd;
     if (isStreakInProgress) return;
 
@@ -125,12 +201,16 @@ async function connectTikTok(username, sessionId) {
     if (coins <= 0) return;
 
     state.tntQueue += coins;
-    state.totalTntSpawned += coins;
-
     pushLog(
       "gift",
       `${data.nickname || data.uniqueId} kirim ${data.giftName || "gift"} x${data.repeatCount} (${coins} coin -> ${coins} TNT)`
     );
+    broadcastStatus();
+  });
+
+  connection.on(WebcastEvent.FOLLOW, (data) => {
+    state.tntQueue += 1;
+    pushLog("gift", `${data.nickname || data.uniqueId} follow (+1 TNT)`);
     broadcastStatus();
   });
 
@@ -151,23 +231,8 @@ async function disconnectTikTok() {
 }
 
 // =======================================================
-// API: DIPAKAI ADDON MINECRAFT
-// =======================================================
-
-// Addon polling endpoint ini. Hanya melepas sejumlah "max" TNT,
-// sisanya tetap tersimpan di queue untuk polling berikutnya.
-app.get("/api/tnt-queue", requireAddonSecret, (req, res) => {
-  const max = Math.max(0, parseInt(req.query.max, 10) || 40);
-  const release = Math.min(state.tntQueue, max);
-  state.tntQueue -= release;
-  if (release > 0) broadcastStatus();
-  res.json({ count: release, remaining: state.tntQueue });
-});
-
-// =======================================================
 // API: DIPAKAI WEB ADMIN
 // =======================================================
-
 app.get("/api/status", (req, res) => {
   res.json({
     connected: state.connected,
@@ -175,6 +240,7 @@ app.get("/api/status", (req, res) => {
     viewerCount: state.viewerCount,
     tntQueue: state.tntQueue,
     totalTntSpawned: state.totalTntSpawned,
+    mcConnections: state.mcConnections,
     log: state.log,
   });
 });
@@ -213,7 +279,7 @@ app.post("/api/reset-queue", requireAdminPassword, (req, res) => {
   res.json({ ok: true });
 });
 
-wss.on("connection", (ws) => {
+wssAdmin.on("connection", (ws) => {
   ws.send(
     JSON.stringify({
       event: "status",
@@ -223,6 +289,7 @@ wss.on("connection", (ws) => {
         viewerCount: state.viewerCount,
         tntQueue: state.tntQueue,
         totalTntSpawned: state.totalTntSpawned,
+        mcConnections: state.mcConnections,
       },
     })
   );
