@@ -2,126 +2,340 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8" />
-<title>Marathon Timer Overlay</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gift TNT Live — Panel Kontrol</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root{
+    --bg: #161310;
+    --bg-panel: #1f1a15;
+    --bg-panel-2: #261f18;
+    --line: #3a2f24;
+    --fuse: #ff5630;
+    --fuse-dim: #7a2c1c;
+    --crate: #b08d4f;
+    --text: #efe6d8;
+    --text-dim: #a99c8a;
+    --ok: #6fbf73;
+    --bad: #e25656;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(ellipse at top, #221b14 0%, var(--bg) 60%);
+    color:var(--text);
+    font-family:'JetBrains Mono', monospace;
+    min-height:100vh;
+    padding-bottom:60px;
+  }
+  h1,h2,h3{font-family:'Space Grotesk', sans-serif; margin:0;}
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:18px 24px; border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg, #1c1712, transparent);
+  }
+  .brand{display:flex; align-items:center; gap:10px;}
+  .brand .fuse-dot{
+    width:12px; height:12px; border-radius:50%;
+    background:var(--fuse-dim);
+    box-shadow:0 0 0 0 rgba(255,86,48,0.6);
+  }
+  .brand .fuse-dot.live{
+    background:var(--fuse);
+    animation:pulse 1.4s infinite;
+  }
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(255,86,48,.55);}
+    70%{box-shadow:0 0 0 10px rgba(255,86,48,0);}
+    100%{box-shadow:0 0 0 0 rgba(255,86,48,0);}
+  }
+  .brand h1{font-size:1.15rem; letter-spacing:.02em;}
+  .status-pill{
+    font-size:.72rem; padding:5px 12px; border-radius:20px;
+    border:1px solid var(--line); color:var(--text-dim);
+  }
+  .status-pill.on{ color:var(--ok); border-color:#2c4a2c; background:#16210f;}
+  .status-pill.off{ color:var(--bad); border-color:#4a2c2c; background:#211010;}
 
-  body {
-    background: transparent;
-    font-family: 'Arial Black', Arial, sans-serif;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100vh;
-    width: 100vw;
-    overflow: hidden;
-    padding: 2vw;
+  .wrap{max-width:1040px; margin:0 auto; padding:28px 20px;}
+
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:18px;}
+  @media (max-width:760px){ .grid{grid-template-columns:1fr;} }
+
+  .panel{
+    background:var(--bg-panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:20px;
+  }
+  .panel h2{font-size:.95rem; text-transform:uppercase; letter-spacing:.08em; color:var(--crate); margin-bottom:14px;}
+
+  label{display:block; font-size:.75rem; color:var(--text-dim); margin:12px 0 5px;}
+  input{
+    width:100%; padding:10px 12px; border-radius:6px;
+    border:1px solid var(--line); background:#100d0a; color:var(--text);
+    font-family:'JetBrains Mono', monospace; font-size:.85rem;
+  }
+  input:focus{outline:none; border-color:var(--fuse);}
+  .hint{font-size:.68rem; color:var(--text-dim); margin-top:4px; line-height:1.4;}
+
+  button{
+    font-family:'Space Grotesk', sans-serif; font-weight:700;
+    border:none; border-radius:6px; padding:11px 18px;
+    cursor:pointer; font-size:.85rem; letter-spacing:.02em;
+    transition:transform .08s ease, filter .15s ease;
+  }
+  button:active{transform:scale(.97);}
+  .btn-fuse{ background:var(--fuse); color:#1a0d08;}
+  .btn-fuse:hover{filter:brightness(1.08);}
+  .btn-ghost{ background:transparent; color:var(--text-dim); border:1px solid var(--line);}
+  .btn-ghost:hover{ color:var(--text); border-color:var(--text-dim);}
+  .row{display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;}
+
+  .stat-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:8px;}
+  .stat{
+    background:var(--bg-panel-2); border:1px solid var(--line);
+    border-radius:8px; padding:14px;
+  }
+  .stat .num{font-family:'Space Grotesk', sans-serif; font-size:1.7rem; font-weight:700; color:var(--fuse);}
+  .stat .label{font-size:.68rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:.06em; margin-top:2px;}
+
+  .fuse-bar-wrap{margin:16px 0 18px;}
+  .fuse-track{
+    height:8px; border-radius:6px; background:#100d0a; border:1px solid var(--line);
+    overflow:hidden; position:relative;
+  }
+  .fuse-fill{
+    height:100%; width:0%; background:linear-gradient(90deg, var(--fuse-dim), var(--fuse));
+    transition:width .4s ease;
   }
 
-  #timer {
-    font-size: clamp(30px, 14vw, 200px);
-    font-weight: 900;
-    color: #ffffff;
-    text-shadow:
-      -3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000, 3px 3px 0 #000,
-      0 0 25px rgba(255, 215, 0, 0.8);
-    letter-spacing: 0.04em;
-    transition: transform 0.15s ease;
-    line-height: 1;
-    white-space: nowrap;
-    text-align: center;
+  .log{
+    margin-top:18px; max-height:280px; overflow-y:auto;
+    border-top:1px solid var(--line); padding-top:10px;
   }
+  .log-entry{font-size:.76rem; padding:6px 0; border-bottom:1px solid #2a2117; color:var(--text-dim);}
+  .log-entry .t{color:#7a6c58; margin-right:8px;}
+  .log-entry.gift{color:var(--fuse);}
+  .log-entry.connect{color:var(--ok);}
+  .log-entry.disconnect, .log-entry.error{color:var(--bad);}
 
-  #timer.pulse { transform: scale(1.15); color: #ffd700; }
-  #timer.paused { color: #aaaaaa; }
-  #timer.ended { color: #ff3b3b; }
-
-  #label {
-    margin-top: 1vh;
-    font-size: clamp(14px, 3.5vw, 36px);
-    color: #fff;
-    text-shadow: 2px 2px 0 #000;
-    letter-spacing: 0.1em;
-    text-align: center;
-    max-width: 95vw;
-    word-break: break-word;
+  .lockscreen{
+    max-width:340px; margin:120px auto; text-align:center;
   }
-
-  #toast {
-    position: absolute;
-    bottom: 6vh;
-    font-size: clamp(14px, 2.8vw, 30px);
-    color: #00ff88;
-    text-shadow: 2px 2px 0 #000;
-    opacity: 0;
-    transition: opacity 0.3s ease, transform 0.3s ease;
-    transform: translateY(20px);
-    font-weight: bold;
-    text-align: center;
-    max-width: 90vw;
-    padding: 0 2vw;
-  }
-  #toast.show { opacity: 1; transform: translateY(0); }
+  .lockscreen input{margin-bottom:10px;}
+  .msg{font-size:.75rem; margin-top:8px; min-height:16px;}
+  .msg.bad{color:var(--bad);}
+  .msg.ok{color:var(--ok);}
 </style>
 </head>
 <body>
-  <div id="timer">00:00</div>
-  <div id="label">MARATHON TIME</div>
-  <div id="toast"></div>
 
-  <script>
-    const wsUrl = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host;
-    const timerEl = document.getElementById('timer');
-    const labelEl = document.getElementById('label');
-    const toastEl = document.getElementById('toast');
+<div id="lock" class="lockscreen">
+  <h1>🧨 Gift TNT Live</h1>
+  <p class="hint">Masukkan password admin untuk membuka panel kontrol.</p>
+  <input id="passInput" type="password" placeholder="Password admin" />
+  <button class="btn-fuse" style="width:100%" onclick="tryLogin()">Masuk</button>
+  <div id="lockMsg" class="msg"></div>
+</div>
 
-    function formatTime(totalSeconds) {
-      const s = Math.max(0, totalSeconds);
-      const mm = String(Math.floor(s / 60)).padStart(2, '0');
-      const ss = String(s % 60).padStart(2, '0');
-      return `${mm}:${ss}`;
+<div id="app" style="display:none;">
+  <div class="topbar">
+    <div class="brand">
+      <div id="liveDot" class="fuse-dot"></div>
+      <h1>Gift TNT Live</h1>
+    </div>
+    <span id="statusPill" class="status-pill off">Belum connect</span>
+  </div>
+
+  <div class="wrap">
+    <div class="grid">
+      <div class="panel">
+        <h2>Data Live TikTok</h2>
+        <label for="username">Username TikTok (tanpa @)</label>
+        <input id="username" placeholder="contoh: namastreamer" />
+
+        <label for="sessionId">Session ID (opsional, dari cookie browser)</label>
+        <input id="sessionId" placeholder="isi kalau koneksi dari Railway gagal" />
+        <div class="hint">
+          Kalau connect gagal karena IP server (Railway) dianggap mencurigakan oleh TikTok,
+          isi session ID. Cara ambil: login TikTok lewat browser Chrome di HP →
+          buka DevTools/Inspect → Application/Storage → Cookies → cari nama <b>sessionid</b> → copy valuenya ke sini.
+        </div>
+
+        <div class="row">
+          <button class="btn-fuse" onclick="doConnect()">Connect Live</button>
+          <button class="btn-ghost" onclick="doDisconnect()">Disconnect</button>
+        </div>
+        <div id="connectMsg" class="msg"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Test Spawn TNT</h2>
+        <p class="hint" style="margin-top:0">
+          Tambah TNT ke antrian secara manual tanpa harus ada gift asli.
+          Berguna untuk tes koneksi addon Minecraft.
+        </p>
+        <label for="testCount">Jumlah TNT</label>
+        <input id="testCount" type="number" min="1" max="500" value="5" />
+        <div class="row">
+          <button class="btn-fuse" onclick="doTestSpawn()">🧨 Test Spawn</button>
+          <button class="btn-ghost" onclick="doResetQueue()">Reset Antrian</button>
+        </div>
+        <div id="testMsg" class="msg"></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:18px;">
+      <h2>Status Live</h2>
+      <div class="stat-grid">
+        <div class="stat"><div id="statViewer" class="num">0</div><div class="label">Viewer</div></div>
+        <div class="stat"><div id="statQueue" class="num">0</div><div class="label">Antrian TNT</div></div>
+        <div class="stat"><div id="statTotal" class="num">0</div><div class="label">Total TNT (sesi ini)</div></div>
+        <div class="stat"><div id="statUser" class="num" style="font-size:1.1rem;">-</div><div class="label">Username</div></div>
+      </div>
+
+      <div class="fuse-bar-wrap">
+        <div class="fuse-track"><div id="fuseFill" class="fuse-fill"></div></div>
+      </div>
+
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let ADMIN_PASSWORD = sessionStorage.getItem("gifttnt_pass") || "";
+
+function tryLogin(){
+  const val = document.getElementById("passInput").value;
+  if(!val){ setLockMsg("Isi password dulu.", true); return; }
+  ADMIN_PASSWORD = val;
+  fetch("/api/status").then(r=>r.json()).then(()=>{
+    sessionStorage.setItem("gifttnt_pass", val);
+    document.getElementById("lock").style.display = "none";
+    document.getElementById("app").style.display = "block";
+    initApp();
+  });
+}
+
+function setLockMsg(msg, bad){
+  const el = document.getElementById("lockMsg");
+  el.textContent = msg;
+  el.className = "msg " + (bad ? "bad" : "ok");
+}
+
+function authHeaders(){
+  return { "Content-Type":"application/json", "X-Admin-Password": ADMIN_PASSWORD };
+}
+
+async function doConnect(){
+  const username = document.getElementById("username").value.trim();
+  const sessionId = document.getElementById("sessionId").value.trim();
+  setMsg("connectMsg", "Menyambungkan...", false);
+  try{
+    const res = await fetch("/api/connect", { method:"POST", headers:authHeaders(), body:JSON.stringify({username, sessionId}) });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error || "Gagal connect");
+    setMsg("connectMsg", "Berhasil connect ke @" + username, false);
+  }catch(e){
+    setMsg("connectMsg", "Error: " + e.message, true);
+  }
+}
+
+async function doDisconnect(){
+  await fetch("/api/disconnect", { method:"POST", headers:authHeaders() });
+  setMsg("connectMsg", "Disconnect dilakukan.", false);
+}
+
+async function doTestSpawn(){
+  const count = parseInt(document.getElementById("testCount").value, 10) || 1;
+  try{
+    const res = await fetch("/api/test-spawn", { method:"POST", headers:authHeaders(), body:JSON.stringify({count}) });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error || "Gagal test spawn");
+    setMsg("testMsg", "Ditambahkan " + count + " TNT ke antrian.", false);
+  }catch(e){
+    setMsg("testMsg", "Error: " + e.message, true);
+  }
+}
+
+async function doResetQueue(){
+  await fetch("/api/reset-queue", { method:"POST", headers:authHeaders() });
+  setMsg("testMsg", "Antrian di-reset.", false);
+}
+
+function setMsg(id, msg, bad){
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = "msg " + (bad ? "bad" : "ok");
+}
+
+function renderStatus(d){
+  document.getElementById("statViewer").textContent = d.viewerCount ?? 0;
+  document.getElementById("statQueue").textContent = d.tntQueue ?? 0;
+  document.getElementById("statTotal").textContent = d.totalTntSpawned ?? 0;
+  document.getElementById("statUser").textContent = d.username ? "@" + d.username : "-";
+
+  const pill = document.getElementById("statusPill");
+  const dot = document.getElementById("liveDot");
+  if(d.connected){
+    pill.textContent = "🔴 LIVE — connected";
+    pill.className = "status-pill on";
+    dot.classList.add("live");
+  }else{
+    pill.textContent = "Belum connect";
+    pill.className = "status-pill off";
+    dot.classList.remove("live");
+  }
+
+  const pct = Math.min(100, (d.tntQueue || 0) * 2);
+  document.getElementById("fuseFill").style.width = pct + "%";
+}
+
+function addLogEntry(entry){
+  const log = document.getElementById("log");
+  const div = document.createElement("div");
+  div.className = "log-entry " + entry.type;
+  const time = new Date(entry.time).toLocaleTimeString("id-ID");
+  div.innerHTML = '<span class="t">' + time + '</span>' + escapeHtml(entry.message);
+  log.prepend(div);
+  while(log.children.length > 60) log.removeChild(log.lastChild);
+}
+
+function escapeHtml(s){
+  return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+
+function initApp(){
+  fetch("/api/status").then(r=>r.json()).then(d=>{
+    renderStatus(d);
+    (d.log || []).slice().reverse().forEach(addLogEntry);
+  });
+
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(proto + "//" + location.host + "/ws");
+  ws.onmessage = (msg) => {
+    const payload = JSON.parse(msg.data);
+    if(payload.event === "status") renderStatus(payload.data);
+    if(payload.event === "log") addLogEntry(payload.data);
+  };
+  ws.onclose = () => {
+    setTimeout(() => location.reload(), 3000);
+  };
+}
+
+if(ADMIN_PASSWORD){
+  fetch("/api/status").then(r=>{
+    if(r.ok){
+      document.getElementById("lock").style.display = "none";
+      document.getElementById("app").style.display = "block";
+      initApp();
     }
-
-    function render(state) {
-      timerEl.textContent = formatTime(state.remainingSeconds);
-      timerEl.classList.toggle('ended', state.remainingSeconds <= 0);
-      timerEl.classList.toggle('paused', state.paused);
-      labelEl.textContent = state.labelText || '';
-    }
-
-    function pulse() {
-      timerEl.classList.add('pulse');
-      setTimeout(() => timerEl.classList.remove('pulse'), 200);
-    }
-
-    function showToast(text) {
-      toastEl.textContent = text;
-      toastEl.classList.add('show');
-      setTimeout(() => toastEl.classList.remove('show'), 1800);
-    }
-
-    function connectWS() {
-      const ws = new WebSocket(wsUrl);
-
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.type === 'state') {
-          render(data.state);
-        } else if (data.type === 'gift') {
-          pulse();
-          if (data.coins > 0) {
-            showToast(`${data.user} +${data.seconds}s (${data.giftName} x${data.coins} coin)`);
-          } else {
-            showToast(`${data.user} +${data.seconds}s (${data.giftName})`);
-          }
-        }
-      };
-
-      ws.onclose = () => setTimeout(connectWS, 3000);
-      ws.onerror = () => ws.close();
-    }
-    connectWS();
-  </script>
+  });
+}
+</script>
 </body>
 </html>
