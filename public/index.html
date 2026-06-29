@@ -157,12 +157,13 @@
         <p class="hint" style="margin-top:0">
           Buka world kamu di Minecraft (HARUS dibuka dulu, baru ketik ini di chat):
         </p>
-        <input readonly id="connectCmd" value="/connect loading.../" onclick="this.select()" style="font-weight:bold; color:var(--fuse);" />
+        <input id="connectCmd" value="/connect ISI-HOST-TCP-PROXY:PORT" onclick="this.select()" style="font-weight:bold; color:var(--fuse);" />
         <div class="hint">
-          Tap kotak di atas buat select all, lalu ketik manual di chat Minecraft
-          (command nggak bisa di-paste langsung di sebagian device).
-          Sebelum itu, di Settings → General → Profile, aktifkan
-          <b>"Require Encrypted Websockets"</b>.
+          Ganti "ISI-HOST-TCP-PROXY:PORT" dengan alamat dari Railway → Settings →
+          Networking → <b>TCP Proxy</b> (bentuknya kayak <code>sesuatu.proxy.rlwy.net:12345</code>).
+          Tap kotak buat select all, lalu ketik manual di chat Minecraft.
+          Sebelum itu, di Settings → General → Profile, <b>MATIKAN</b>
+          "Require Encrypted Websockets" (harus OFF, bukan ON).
         </div>
         <div class="row">
           <span id="mcStatus" class="status-pill off">Minecraft: belum connect</span>
@@ -335,8 +336,6 @@ function escapeHtml(s){
 }
 
 function initApp(){
-  document.getElementById("connectCmd").value = "/connect " + location.hostname + ":443";
-
   fetch("/api/status").then(r=>r.json()).then(d=>{
     renderStatus(d);
     (d.log || []).slice().reverse().forEach(addLogEntry);
